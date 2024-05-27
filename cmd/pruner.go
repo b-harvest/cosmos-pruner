@@ -1,22 +1,19 @@
 package cmd
 
 import (
+	storetypes "cosmossdk.io/store/types"
 	"encoding/binary"
 	"fmt"
 	"github.com/cockroachdb/pebble"
-	storetypes "github.com/cosmos/cosmos-sdk/store/types"
+	db "github.com/cometbft/cometbft-db"
+	"github.com/cometbft/cometbft/state"
+	"github.com/cometbft/cometbft/store"
 	"path/filepath"
 	"strconv"
 	"strings"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/spf13/cobra"
 	"github.com/syndtr/goleveldb/leveldb/opt"
-	"github.com/tendermint/tendermint/state"
-	tmstore "github.com/tendermint/tendermint/store"
-	db "github.com/tendermint/tm-db"
-
-	"github.com/binaryholdings/cosmos-pruner/internal/rootmulti"
 )
 
 // to figuring out the height to prune tx_index
@@ -193,7 +190,7 @@ func pruneAppState(home string) error {
 	}
 
 	for _, value := range keys {
-		appStore.MountStoreWithDB(storetypes.NewKVStoreKey(value), sdk.StoreTypeIAVL, nil)
+		appStore.MountStoreWithDB(storetypes.NewKVStoreKey(value), storetypes.StoreTypeIAVL, nil)
 	}
 
 	err = appStore.LoadLatestVersion()
@@ -235,7 +232,7 @@ func pruneTMData(home string) error {
 		return errDBBlock
 	}
 
-	blockStore := tmstore.NewBlockStore(blockStoreDB)
+	blockStore := store.NewBlockStore(blockStoreDB)
 	defer blockStore.Close()
 
 	// Get StateStore
@@ -246,7 +243,7 @@ func pruneTMData(home string) error {
 
 	var err error
 
-	stateStore := state.NewStore(stateDB)
+	stateStore := state.NewStore(stateDB, state.StoreOptions{})
 	defer stateStore.Close()
 
 	base := blockStore.Base()
@@ -264,22 +261,38 @@ func pruneTMData(home string) error {
 	}
 
 	fmt.Println("pruning block store")
+	state, err := stateStore.Load()
+
+	var prunedBlocksCount uint64
 
 	// prune block store
 	// prune one by one instead of range to avoid `panic: pebble: batch too large: >= 4.0 G` issue
 	// (see https://github.com/notional-labs/cosmprund/issues/11)
-	for pruneBlockFrom := base; pruneBlockFrom < pruneHeight-1; pruneBlockFrom += rootmulti.PRUNE_BATCH_SIZE {
-		height := pruneBlockFrom
+	for pruneStateFrom := base; pruneStateFrom < pruneHeight-1; pruneStateFrom += rootmulti.PRUNE_BATCH_SIZE {
+		height := pruneStateFrom
 		if height >= pruneHeight-1 {
 			height = pruneHeight - 1
 		}
 
-		_, err = blockStore.PruneBlocks(height)
+		prunedBlocks, evidenceRetainBlocks, _ := blockStore.PruneBlocks(height, state)
 		if err != nil {
 			//return err
 			fmt.Println(err.Error())
 		}
+		prunedBlocksCount += prunedBlocks
+
+		endHeight := pruneStateFrom + rootmulti.PRUNE_BATCH_SIZE
+		if endHeight >= pruneHeight-1 {
+			endHeight = pruneHeight - 1
+		}
+
+		err = stateStore.PruneStates(pruneStateFrom, endHeight, evidenceRetainBlocks)
+		if err != nil {
+			fmt.Printf("failed to prune state store: %w", err)
+		}
 	}
+
+	fmt.Printf("Pruned blocks count: %d\n", prunedBlocksCount)
 
 	if compact {
 		fmt.Println("compacting block store")
@@ -297,7 +310,7 @@ func pruneTMData(home string) error {
 		if endHeight >= pruneHeight-1 {
 			endHeight = pruneHeight - 1
 		}
-		err = stateStore.PruneStates(pruneStateFrom, endHeight)
+
 		if err != nil {
 			//return err
 			fmt.Println(err.Error())
@@ -362,7 +375,7 @@ func compactDB(vdb db.DB) error {
 	if dbType == db.GoLevelDBBackend {
 		vdbLevel := vdb.(*db.GoLevelDB)
 
-		if err := vdbLevel.ForceCompact(nil, nil); err != nil {
+		if err := vdbLevel.Compact(nil, nil); err != nil {
 			return err
 		}
 	} else if dbType == db.PebbleDBBackend {

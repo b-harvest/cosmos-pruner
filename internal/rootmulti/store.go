@@ -3,30 +3,32 @@ package rootmulti
 import (
 	"bufio"
 	"compress/zlib"
+	"cosmossdk.io/store/iavl"
+	"cosmossdk.io/store/listenkv"
+	"cosmossdk.io/store/metrics"
+	pruningtypes "cosmossdk.io/store/pruning/types"
+	types "cosmossdk.io/store/types"
 	"encoding/binary"
 	"fmt"
+	dbm "github.com/cometbft/cometbft-db"
+	abci "github.com/cometbft/cometbft/abci"
 	iavltree "github.com/cosmos/iavl"
 	protoio "github.com/gogo/protobuf/io"
 	gogotypes "github.com/gogo/protobuf/types"
 	"github.com/pkg/errors"
-	abci "github.com/tendermint/tendermint/abci/types"
-	dbm "github.com/tendermint/tm-db"
 	"io"
 	"math"
 	"sort"
 	"strings"
 
-	"github.com/cosmos/cosmos-sdk/snapshots"
-	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
-	"github.com/cosmos/cosmos-sdk/store/cachemulti"
-	"github.com/cosmos/cosmos-sdk/store/dbadapter"
-	"github.com/cosmos/cosmos-sdk/store/iavl"
-	"github.com/cosmos/cosmos-sdk/store/listenkv"
-	"github.com/cosmos/cosmos-sdk/store/mem"
-	"github.com/cosmos/cosmos-sdk/store/tracekv"
-	"github.com/cosmos/cosmos-sdk/store/transient"
-	"github.com/cosmos/cosmos-sdk/store/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	sdkerrors "cosmossdk.io/errors"
+	"cosmossdk.io/store/cachemulti"
+	"cosmossdk.io/store/dbadapter"
+	"cosmossdk.io/store/mem"
+	"cosmossdk.io/store/snapshots"
+	snapshottypes "cosmossdk.io/store/snapshots/types"
+	"cosmossdk.io/store/tracekv"
+	"cosmossdk.io/store/transient"
 )
 
 const (
@@ -48,7 +50,7 @@ const PRUNE_BATCH_SIZE = 1000
 type Store struct {
 	db             dbm.DB
 	lastCommitInfo *types.CommitInfo
-	pruningOpts    types.PruningOptions
+	pruningOpts    pruningtypes.PruningOptions
 	iavlCacheSize  int
 	storesParams   map[types.StoreKey]storeParams
 	stores         map[types.StoreKey]types.CommitKVStore
@@ -66,6 +68,45 @@ type Store struct {
 	listeners map[types.StoreKey][]types.WriteListener
 }
 
+func (rs *Store) WorkingHash() []byte {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (rs *Store) PruneSnapshotHeight(height int64) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (rs *Store) SetSnapshotInterval(snapshotInterval uint64) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (rs *Store) SetIAVLDisableFastNode(disable bool) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (rs *Store) RollbackToVersion(version int64) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (rs *Store) PopStateCache() []*types.StoreKVPair {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (rs *Store) SetMetrics(metrics metrics.StoreMetrics) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (rs *Store) LatestVersion() int64 {
+	return rs
+}
+
 var (
 	_ types.CommitMultiStore = (*Store)(nil)
 	_ types.Queryable        = (*Store)(nil)
@@ -78,8 +119,8 @@ var (
 func NewStore(db dbm.DB) *Store {
 	return &Store{
 		db:            db,
-		pruningOpts:   types.PruneNothing,
-		iavlCacheSize: iavl.DefaultIAVLCacheSize,
+		pruningOpts:   pruningtypes.NewPruningOptions(pruningtypes.PruningNothing),
+		iavlCacheSize: iavl2.DefaultIAVLCacheSize,
 		storesParams:  make(map[types.StoreKey]storeParams),
 		stores:        make(map[types.StoreKey]types.CommitKVStore),
 		keysByName:    make(map[string]types.StoreKey),
@@ -90,14 +131,14 @@ func NewStore(db dbm.DB) *Store {
 }
 
 // GetPruning fetches the pruning strategy from the root store.
-func (rs *Store) GetPruning() types.PruningOptions {
+func (rs *Store) GetPruning() pruningtypes.PruningOptions {
 	return rs.pruningOpts
 }
 
 // SetPruning sets the pruning strategy on the root store and all the sub-stores.
 // Note, calling SetPruning on the root store prior to LoadVersion or
 // LoadLatestVersion performs a no-op as the stores aren't mounted yet.
-func (rs *Store) SetPruning(pruningOpts types.PruningOptions) {
+func (rs *Store) SetPruning(pruningOpts pruningtypes.PruningOptions) {
 	rs.pruningOpts = pruningOpts
 }
 
@@ -821,7 +862,7 @@ func (rs *Store) Snapshot(height uint64, format uint32) (<-chan io.ReadCloser, e
 func (rs *Store) Restore(
 	height uint64, format uint32, chunks <-chan io.ReadCloser, ready chan<- struct{},
 ) error {
-	if format != snapshottypes.CurrentFormat {
+	if format != types2.CurrentFormat {
 		return sdkerrors.Wrapf(snapshottypes.ErrUnknownFormat, "format %v", format)
 	}
 	if height == 0 {
