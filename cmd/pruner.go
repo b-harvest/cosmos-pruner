@@ -1,13 +1,16 @@
 package cmd
 
 import (
+	"cosmossdk.io/log"
 	storetypes "cosmossdk.io/store/types"
 	"encoding/binary"
 	"fmt"
+	"github.com/bharvest-devops/cosmos-pruner/internal/rootmulti"
 	"github.com/cockroachdb/pebble"
-	db "github.com/cometbft/cometbft-db"
+	cometdb "github.com/cometbft/cometbft-db"
 	"github.com/cometbft/cometbft/state"
 	"github.com/cometbft/cometbft/store"
+	dbm "github.com/cosmos/cosmos-db"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -19,7 +22,7 @@ import (
 // to figuring out the height to prune tx_index
 var txIdxHeight int64 = 0
 
-// load db
+// load dbm
 // load app store and prune
 // if immutable tree is not deletable we should import and export current state
 
@@ -61,7 +64,7 @@ func pruneCmd() *cobra.Command {
 
 func pruneTxIndex(home string) error {
 	fmt.Println("pruning tx_index")
-	txIdxDB, err := openDB("tx_index", home)
+	txIdxDB, err := openCosmosDB("tx_index", home)
 	if err != nil {
 		return err
 	}
@@ -86,7 +89,7 @@ func pruneTxIndex(home string) error {
 
 	if compact {
 		fmt.Println("compacting tx_index")
-		if err := compactDB(txIdxDB); err != nil {
+		if err := compactCosmosDB(txIdxDB); err != nil {
 			fmt.Println(err.Error())
 		}
 	}
@@ -94,7 +97,7 @@ func pruneTxIndex(home string) error {
 	return nil
 }
 
-func pruneTxIndexTxs(db db.DB, pruneHeight int64) {
+func pruneTxIndexTxs(db dbm.DB, pruneHeight int64) {
 	itr, itrErr := db.Iterator(nil, nil)
 	if itrErr != nil {
 		panic(itrErr)
@@ -132,7 +135,7 @@ func pruneTxIndexTxs(db db.DB, pruneHeight int64) {
 	}
 }
 
-func pruneBlockIndex(db db.DB, pruneHeight int64) {
+func pruneBlockIndex(db dbm.DB, pruneHeight int64) {
 	itr, itrErr := db.Iterator(nil, nil)
 	if itrErr != nil {
 		panic(itrErr)
@@ -158,7 +161,7 @@ func pruneBlockIndex(db db.DB, pruneHeight int64) {
 }
 
 func pruneAppState(home string) error {
-	appDB, errDB := openDB("application", home)
+	appDB, errDB := openCosmosDB("application", home)
 	if errDB != nil {
 		return errDB
 	}
@@ -182,7 +185,7 @@ func pruneAppState(home string) error {
 	keys := getStoreKeys(appDB)
 
 	// TODO: cleanup app state
-	appStore := rootmulti.NewStore(appDB)
+	appStore := rootmulti.NewStore(appDB, log.NewNopLogger())
 
 	if txIdxHeight <= 0 {
 		txIdxHeight = appStore.LastCommitID().Version
@@ -211,13 +214,15 @@ func pruneAppState(home string) error {
 	if versionsToPrune <= 0 {
 		fmt.Printf("[pruneAppState] No need to prune (%d)\n", versionsToPrune)
 	} else {
-		appStore.PruneHeights = v64[:versionsToPrune]
-		appStore.PruneStores()
+		err := appStore.PruneStores(versionsToPrune)
+		if err != nil {
+			fmt.Println(err.Error())
+		}
 	}
 
 	if compact {
 		fmt.Println("compacting application state")
-		if err := compactDB(appDB); err != nil {
+		if err := compactCosmosDB(appDB); err != nil {
 			fmt.Println(err.Error())
 		}
 	}
@@ -227,7 +232,7 @@ func pruneAppState(home string) error {
 
 // pruneTMData prunes the tendermint blocks and state based on the amount of blocks to keep
 func pruneTMData(home string) error {
-	blockStoreDB, errDBBlock := openDB("blockstore", home)
+	blockStoreDB, errDBBlock := openCometBFTDB("blockstore", home)
 	if errDBBlock != nil {
 		return errDBBlock
 	}
@@ -236,7 +241,7 @@ func pruneTMData(home string) error {
 	defer blockStore.Close()
 
 	// Get StateStore
-	stateDB, errDBBState := openDB("state", home)
+	stateDB, errDBBState := openCometBFTDB("state", home)
 	if errDBBState != nil {
 		return errDBBState
 	}
@@ -296,7 +301,7 @@ func pruneTMData(home string) error {
 
 	if compact {
 		fmt.Println("compacting block store")
-		if err := compactDB(blockStoreDB); err != nil {
+		if err := compactCometBFTDB(blockStoreDB); err != nil {
 			fmt.Println(err.Error())
 		}
 	}
@@ -319,7 +324,7 @@ func pruneTMData(home string) error {
 
 	if compact {
 		fmt.Println("compacting state store")
-		if err := compactDB(stateDB); err != nil {
+		if err := compactCometBFTDB(stateDB); err != nil {
 			fmt.Println(err.Error())
 		}
 	}
@@ -328,31 +333,25 @@ func pruneTMData(home string) error {
 }
 
 // Utils
-
-func openDB(dbname string, home string) (db.DB, error) {
-	dbType := db.BackendType(backend)
+func openCosmosDB(dbname string, home string) (dbm.DB, error) {
+	dbType := dbm.BackendType(backend)
 	dbDir := rootify(dataDir, home)
 
-	var db1 db.DB
+	var db1 dbm.DB
 
-	if dbType == db.GoLevelDBBackend {
+	if dbType == dbm.GoLevelDBBackend {
 		o := opt.Options{
 			DisableSeeksCompaction: true,
 		}
 
-		lvlDB, err := db.NewGoLevelDBWithOpts(dbname, dbDir, &o)
+		lvlDB, err := dbm.NewGoLevelDBWithOpts(dbname, dbDir, &o)
 		if err != nil {
 			return nil, err
 		}
 
 		db1 = lvlDB
-	} else if dbType == db.PebbleDBBackend {
-		opts := &pebble.Options{
-			//DisableAutomaticCompactions: true, // freeze when pruning!
-		}
-		opts.EnsureDefaults()
-
-		ppDB, err := db.NewPebbleDBWithOpts(dbname, dbDir, opts)
+	} else if dbType == dbm.PebbleDBBackend {
+		ppDB, err := dbm.NewPebbleDB(dbname, dbDir, dbm.OptionsMap{})
 		if err != nil {
 			return nil, err
 		}
@@ -360,7 +359,7 @@ func openDB(dbname string, home string) (db.DB, error) {
 		db1 = ppDB
 	} else {
 		var err error
-		db1, err = db.NewDB(dbname, dbType, dbDir)
+		db1, err = dbm.NewDB(dbname, dbType, dbDir)
 		if err != nil {
 			return nil, err
 		}
@@ -369,19 +368,60 @@ func openDB(dbname string, home string) (db.DB, error) {
 	return db1, nil
 }
 
-func compactDB(vdb db.DB) error {
-	dbType := db.BackendType(backend)
+// Utils
+func openCometBFTDB(dbname string, home string) (cometdb.DB, error) {
+	dbType := cometdb.BackendType(backend)
+	dbDir := rootify(dataDir, home)
 
-	if dbType == db.GoLevelDBBackend {
-		vdbLevel := vdb.(*db.GoLevelDB)
+	var db1 cometdb.DB
 
-		if err := vdbLevel.Compact(nil, nil); err != nil {
+	if dbType == cometdb.GoLevelDBBackend {
+		o := opt.Options{
+			DisableSeeksCompaction: true,
+		}
+
+		lvlDB, err := cometdb.NewGoLevelDBWithOpts(dbname, dbDir, &o)
+		if err != nil {
+			return nil, err
+		}
+
+		db1 = lvlDB
+	} else if dbType == cometdb.PebbleDBBackend {
+		opts := &pebble.Options{
+			//DisableAutomaticCompactions: true, // freeze when pruning!
+		}
+		opts.EnsureDefaults()
+
+		ppDB, err := cometdb.NewPebbleDBWithOpts(dbname, dbDir, opts)
+		if err != nil {
+			return nil, err
+		}
+
+		db1 = ppDB
+	} else {
+		var err error
+		db1, err = cometdb.NewDB(dbname, dbType, dbDir)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return db1, nil
+}
+
+func compactCosmosDB(vdb dbm.DB) error {
+	dbType := dbm.BackendType(backend)
+
+	if dbType == dbm.GoLevelDBBackend {
+		vdbLevel := vdb.(*dbm.GoLevelDB)
+
+		if err := vdbLevel.ForceCompact(nil, nil); err != nil {
 			return err
 		}
-	} else if dbType == db.PebbleDBBackend {
-		vdbPebble := vdb.(*db.PebbleDB).DB()
+	} else if dbType == dbm.PebbleDBBackend {
+		vdbPebble := vdb.(*dbm.PebbleDB).DB()
 
-		iter := vdbPebble.NewIter(nil)
+		iter, _ := vdbPebble.NewIter(nil)
 		//defer iter.Close()
 
 		var start, end []byte
@@ -406,7 +446,44 @@ func compactDB(vdb db.DB) error {
 	return nil
 }
 
-func getStoreKeys(db db.DB) (storeKeys []string) {
+func compactCometBFTDB(vdb cometdb.DB) error {
+	dbType := cometdb.BackendType(backend)
+
+	if dbType == cometdb.GoLevelDBBackend {
+		vdbLevel := vdb.(*cometdb.GoLevelDB)
+
+		if err := vdbLevel.Compact(nil, nil); err != nil {
+			return err
+		}
+	} else if dbType == cometdb.PebbleDBBackend {
+		vdbPebble := vdb.(*cometdb.PebbleDB).DB()
+
+		iter, _ := vdbPebble.NewIter(nil)
+		//defer iter.Close()
+
+		var start, end []byte
+
+		if iter.First() {
+			start = cp(iter.Key())
+		}
+
+		if iter.Last() {
+			end = cp(iter.Key())
+		}
+
+		// close iter before compacting
+		iter.Close()
+
+		err := vdbPebble.Compact(start, end, false)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func getStoreKeys(db dbm.DB) (storeKeys []string) {
 	latestVer := rootmulti.GetLatestVersion(db)
 	latestCommitInfo, err := getCommitInfo(db, latestVer)
 	if err != nil {
@@ -419,7 +496,7 @@ func getStoreKeys(db db.DB) (storeKeys []string) {
 	return
 }
 
-func getCommitInfo(db db.DB, ver int64) (*storetypes.CommitInfo, error) {
+func getCommitInfo(db dbm.DB, ver int64) (*storetypes.CommitInfo, error) {
 	const commitInfoKeyFmt = "s/%d" // s/<version>
 	cInfoKey := fmt.Sprintf(commitInfoKeyFmt, ver)
 

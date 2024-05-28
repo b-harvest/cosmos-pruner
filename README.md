@@ -27,5 +27,5 @@ Flags:
 - `app`: deprecated! does not use for anything exccep some special chains.
 - `cosmos-sdk`: If pruning app state (Default true)
 - `tendermint`: If pruning tendermint data including blockstore and state. (Default true)
-- `tx_index`: set to false you dont want to prune tx_index.db (default true)
+- `tx_index`: set to false you dont want to prune tx_index.dbm (default true)
 - `compact`: set to false you dont want to compact dbs after prunning (default true)
