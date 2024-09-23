@@ -87,6 +87,7 @@ var (
 // LoadVersion must be called.
 func NewStore(db dbm.DB, logger log.Logger) *Store {
 	return &Store{
+		pruningManager:      pruning.NewManager(db, logger),
 		db:                  db,
 		logger:              logger,
 		iavlCacheSize:       iavl.DefaultIAVLCacheSize,
@@ -241,15 +242,25 @@ func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades) error {
 		storeParams := rs.storesParams[key]
 		commitID := rs.getCommitID(infos, key.Name())
 		rs.logger.Debug("loadVersion commitID", "key", key, "ver", ver, "hash", fmt.Sprintf("%x", commitID.Hash))
+		fmt.Println("loadVersion commitID", "key", key, "ver", ver, "hash", fmt.Sprintf("%x", commitID.Hash))
 
 		// If it has been added, set the initial version
 		if upgrades.IsAdded(key.Name()) || upgrades.RenamedFrom(key.Name()) != "" {
 			storeParams.initialVersion = uint64(ver) + 1
 		} else if commitID.Version != ver && storeParams.typ == types.StoreTypeIAVL {
-			return fmt.Errorf("version of store %s mismatch root store's version; expected %d got %d; new stores should be added using StoreUpgrades", key.Name(), ver, commitID.Version)
+			fmt.Println(commitID.String())
+			fmt.Printf("version of store %s mismatch root store's version; expected %d got %d; new stores should be added using StoreUpgrades", key.Name(), ver, commitID.Version)
+			continue
+			// return fmt.Errorf("version of store %s mismatch root store's version; expected %d got %d; new stores should be added using StoreUpgrades", key.Name(), ver, commitID.Version)
 		}
 
 		store, err := rs.loadCommitStoreFromParams(key, commitID, storeParams)
+
+		// Ignore version does not exists error for evidence store.
+		if errors.Is(err, iavltree.ErrVersionDoesNotExist) {
+			fmt.Println("version does not exists: ", key.String(), "CommitID version: ", commitID.Version)
+			continue
+		}
 		if err != nil {
 			return errors.Wrap(err, "failed to load store")
 		}

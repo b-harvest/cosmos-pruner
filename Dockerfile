@@ -12,6 +12,6 @@ RUN make build
 
 FROM alpine
 
-COPY --from=builder /app/build/cosmos-pruner /usr/bin/cosmprund
+COPY --from=builder /app/build/cosmos-pruner /usr/bin/cosmos-pruner
 
 ENTRYPOINT [ "/usr/bin/cosmprund" ]

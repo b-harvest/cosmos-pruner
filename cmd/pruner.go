@@ -293,7 +293,7 @@ func pruneTMData(home string) error {
 
 		err = stateStore.PruneStates(pruneStateFrom, endHeight, evidenceRetainBlocks)
 		if err != nil {
-			fmt.Printf("failed to prune state store: %w", err)
+			fmt.Printf("failed to prune state store: %s", err)
 		}
 	}
 
