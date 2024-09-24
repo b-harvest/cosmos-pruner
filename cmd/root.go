@@ -8,17 +8,15 @@ import (
 )
 
 var (
-	homePath   string
 	dataDir    string
 	backend    string
-	app        string
 	cosmosSdk  bool
 	tendermint bool
 	blocks     uint64
 	versions   uint64
 	tx_idx     bool
 	compact    bool
-	appName    = "cosmprund"
+	appName    = "cosmos-pruner"
 )
 
 // NewRootCmd returns the root command for relayer.
@@ -26,7 +24,7 @@ func NewRootCmd() *cobra.Command {
 	// RootCmd represents the base command when called without any subcommands
 	var rootCmd = &cobra.Command{
 		Use:   appName,
-		Short: "cosmprund is meant to prune data base history from a cosmos application, avoiding needing to state sync every couple amount of weeks",
+		Short: "cosmos-pruner is meant to prune data base history from a cosmos application, avoiding needing to state sync every couple amount of weeks",
 	}
 
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
@@ -39,46 +37,40 @@ func NewRootCmd() *cobra.Command {
 	}
 
 	// --blocks flag
-	rootCmd.PersistentFlags().Uint64VarP(&blocks, "blocks", "b", 10, "set the amount of blocks to keep (default=10)")
+	rootCmd.PersistentFlags().Uint64VarP(&blocks, "blocks", "b", 10, "set the amount of blocks to keep")
 	if err := viper.BindPFlag("blocks", rootCmd.PersistentFlags().Lookup("blocks")); err != nil {
 		panic(err)
 	}
 
 	// --versions flag
-	rootCmd.PersistentFlags().Uint64VarP(&versions, "versions", "v", 10, "set the amount of versions to keep in the application store (default=10)")
+	rootCmd.PersistentFlags().Uint64VarP(&versions, "versions", "v", 10, "set the amount of versions to keep in the application store")
 	if err := viper.BindPFlag("versions", rootCmd.PersistentFlags().Lookup("versions")); err != nil {
 		panic(err)
 	}
 
 	// --backend flag
-	rootCmd.PersistentFlags().StringVar(&backend, "backend", "goleveldb", "set the type of db being used(default=goleveldb)") //todo add list of dbs to comment
+	rootCmd.PersistentFlags().StringVar(&backend, "backend", "goleveldb", "set the type of db being used(possible: goleveldb, pebbledb)")
 	if err := viper.BindPFlag("backend", rootCmd.PersistentFlags().Lookup("backend")); err != nil {
 		panic(err)
 	}
 
-	// --app flag
-	rootCmd.PersistentFlags().StringVar(&app, "app", "", "set the app you are pruning (supported apps: osmosis)")
-	if err := viper.BindPFlag("app", rootCmd.PersistentFlags().Lookup("app")); err != nil {
-		panic(err)
-	}
-
 	// --cosmos-sdk flag
-	rootCmd.PersistentFlags().BoolVar(&cosmosSdk, "cosmos-sdk", true, "set t`o false if using only with tendermint (default true)")
+	rootCmd.PersistentFlags().BoolVar(&cosmosSdk, "cosmos-sdk", true, "set t`o false if using only with tendermint")
 	if err := viper.BindPFlag("cosmos-sdk", rootCmd.PersistentFlags().Lookup("cosmos-sdk")); err != nil {
 		panic(err)
 	}
 
 	// --tendermint flag
-	rootCmd.PersistentFlags().BoolVar(&tendermint, "tendermint", true, "set to false you dont want to prune tendermint data(default true)")
+	rootCmd.PersistentFlags().BoolVar(&tendermint, "tendermint", true, "set to false you dont want to prune tendermint data")
 	if err := viper.BindPFlag("tendermint", rootCmd.PersistentFlags().Lookup("tendermint")); err != nil {
 		panic(err)
 	}
 
 	// --tx_index flag
-	rootCmd.PersistentFlags().BoolVar(&tx_idx, "tx_index", true, "set to false you dont want to prune tx_index.db (default true)")
+	rootCmd.PersistentFlags().BoolVar(&tx_idx, "tx_index", true, "set to false you dont want to prune tx_index.db")
 
 	// --compact flag
-	rootCmd.PersistentFlags().BoolVar(&compact, "compact", true, "set to false you dont want to compact dbs after prunning (default true)")
+	rootCmd.PersistentFlags().BoolVar(&compact, "compact", true, "set to false you dont want to compact dbs after prunning")
 
 	rootCmd.AddCommand(
 		pruneCmd(),
