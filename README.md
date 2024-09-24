@@ -1,4 +1,7 @@
 # Cosmos-Pruner
+currently, it's not work for prune. but it has compact command. so you could compact goleveldb.
+someday, we'll work on it again.
+
 
 This is a fork of [cosmprund](https://github.com/binaryholdings/cosmprund) with some improvements:
 - support pebbledb
