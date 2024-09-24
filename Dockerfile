@@ -14,4 +14,4 @@ FROM alpine
 
 COPY --from=builder /app/build/cosmos-pruner /usr/bin/cosmos-pruner
 
-ENTRYPOINT [ "/usr/bin/cosmprund" ]
+ENTRYPOINT [ "/usr/bin/cosmos-pruner" ]
