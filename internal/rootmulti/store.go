@@ -86,8 +86,11 @@ var (
 // a store is created, KVStores must be mounted and finally LoadLatestVersion or
 // LoadVersion must be called.
 func NewStore(db dbm.DB, logger log.Logger) *Store {
+	pruningManager := pruning.NewManager(db, logger)
+	pruningManager.SetOptions(pruningtypes.NewPruningOptions(pruningtypes.PruningEverything))
+	pruningManager.SetSnapshotInterval(0)
 	return &Store{
-		pruningManager:      pruning.NewManager(db, logger),
+		pruningManager:      pruningManager,
 		db:                  db,
 		logger:              logger,
 		iavlCacheSize:       iavl.DefaultIAVLCacheSize,
@@ -99,6 +102,10 @@ func NewStore(db dbm.DB, logger log.Logger) *Store {
 		removalMap:          make(map[types.StoreKey]bool),
 		metrics:             metrics.NewNoOpMetrics(),
 	}
+}
+
+func (rs *Store) GetPruningHeight(version int64) int64 {
+	return rs.pruningManager.GetPruningHeight(version)
 }
 
 // GetPruning fetches the pruning strategy from the root store.
