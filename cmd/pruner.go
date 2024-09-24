@@ -208,13 +208,29 @@ func pruneAppState(home string) error {
 		v64[i] = int64(allVersions[i])
 	}
 
-	fmt.Println(len(v64))
 	versionsToPrune := int64(len(v64)) - int64(versions)
 	fmt.Printf("[pruneAppState] versionsToPrune=%d\n", versionsToPrune)
 	if versionsToPrune <= 0 {
 		fmt.Printf("[pruneAppState] No need to prune (%d)\n", versionsToPrune)
 	} else {
-		err := appStore.PruneStores(versionsToPrune)
+		var (
+			pruningHeight int64
+			i             int
+		)
+		for {
+			pruningHeight = appStore.GetPruningHeight(versionsToPrune)
+			if i > 10000 {
+				panic("Could not found pruning height!! you should check if your storage is healthy")
+			}
+			if pruningHeight == 0 {
+				versionsToPrune--
+				i++
+				continue
+			}
+			break
+		}
+
+		err = appStore.PruneStores(pruningHeight)
 		if err != nil {
 			fmt.Println(err.Error())
 		}
@@ -265,15 +281,19 @@ func pruneTMData(home string) error {
 		fmt.Printf("[pruneTMData] set txIdxHeight=%d\n", txIdxHeight)
 	}
 
-	fmt.Println("pruning block store")
+	fmt.Println("pruning block/state store")
 	state, err := stateStore.Load()
 
-	var prunedBlocksCount uint64
+	var (
+		prunedBlocksCount uint64
+		endHeight         int64 = base
+	)
 
 	// prune block store
 	// prune one by one instead of range to avoid `panic: pebble: batch too large: >= 4.0 G` issue
 	// (see https://github.com/notional-labs/cosmprund/issues/11)
 	for pruneStateFrom := base; pruneStateFrom < pruneHeight-1; pruneStateFrom += rootmulti.PRUNE_BATCH_SIZE {
+		err = nil
 		height := pruneStateFrom
 		if height >= pruneHeight-1 {
 			height = pruneHeight - 1
@@ -286,9 +306,26 @@ func pruneTMData(home string) error {
 		}
 		prunedBlocksCount += prunedBlocks
 
-		endHeight := pruneStateFrom + rootmulti.PRUNE_BATCH_SIZE
+		endHeight += rootmulti.PRUNE_BATCH_SIZE
 		if endHeight >= pruneHeight-1 {
 			endHeight = pruneHeight - 1
+		}
+
+		_, err = stateStore.LoadConsensusParams(endHeight)
+		if err != nil {
+			continue
+		}
+		_, err = stateStore.LoadValidators(endHeight)
+		if err != nil {
+			continue
+		}
+		_, err = stateStore.LoadFinalizeBlockResponse(endHeight)
+		if err != nil {
+			continue
+		}
+		_, err = stateStore.LoadLastFinalizeBlockResponse(endHeight)
+		if err != nil {
+			continue
 		}
 
 		err = stateStore.PruneStates(pruneStateFrom, endHeight, evidenceRetainBlocks)
@@ -302,22 +339,6 @@ func pruneTMData(home string) error {
 	if compact {
 		fmt.Println("compacting block store")
 		if err := compactCometBFTDB(blockStoreDB); err != nil {
-			fmt.Println(err.Error())
-		}
-	}
-
-	fmt.Println("pruning state store")
-	// prune state store
-	// prune one by one instead of range to avoid `panic: pebble: batch too large: >= 4.0 G` issue
-	// (see https://github.com/notional-labs/cosmprund/issues/11)
-	for pruneStateFrom := base; pruneStateFrom < pruneHeight-1; pruneStateFrom += rootmulti.PRUNE_BATCH_SIZE {
-		endHeight := pruneStateFrom + rootmulti.PRUNE_BATCH_SIZE
-		if endHeight >= pruneHeight-1 {
-			endHeight = pruneHeight - 1
-		}
-
-		if err != nil {
-			//return err
 			fmt.Println(err.Error())
 		}
 	}
