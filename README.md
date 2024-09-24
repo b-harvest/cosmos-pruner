@@ -22,8 +22,9 @@ git clone https://github.com/bharvest-devops/cosmos-pruner
 cd cosmos-pruner
 make build
 
-# run cosmprund 
-./build/cosmprund prune ~/.gaiad/data --backend=pebbledb --blocks=362880 --versions=362880 --compact=true
+# run cosmos-pruner 
+./build/cosmprund prune ~/.gaiad/data
+# it'll prune as everything mode.
 ```
 
 Flags: 
