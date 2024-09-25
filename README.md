@@ -23,7 +23,7 @@ cd cosmos-pruner
 make build
 
 # run cosmos-pruner 
-./build/cosmprund prune ~/.gaiad/data
+./build/cosmos-pruner prune ~/.gaiad/data
 # it'll prune as everything mode.
 ```
 
