@@ -1,17 +1,4 @@
 # Cosmos-Pruner using cosmos SDK 50
-Previously, cosmos-pruner was used cosmos-sdk 45.
-but after some years, newer version has out and currently we detected fatal error when prune Cosmos storage which has cosmos sdk 50 version.
-
-through this cosmos-pruner, you'll be possible to prune safely for Cosmos SDK 50 version app.
-
-
-However, Cosmos SDK will continue to evolve and some changes may occur in the future.
-
-So if you're running an unstable chain or want to keep record safely, 
-you should avoid using cosmos-pruner prune command and just use only the compact command to reduce goleveldb's disk usage.
-
-
-
 
 
 ## Usage
